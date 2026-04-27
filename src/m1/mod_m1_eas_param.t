@@ -17,10 +17,11 @@ module mod_m1_eas_param
   integer, parameter :: tau_path   = 6
 
 
-  integer, parameter :: fluid_vars = 3
+  integer, parameter :: fluid_vars = 4
   integer, parameter :: idx_rho = 1
   integer, parameter :: idx_T   = 2
   integer, parameter :: idx_Ye  = 3
+  integer, parameter :: idx_Ymu = 4
 
   integer :: m1_i_nue = 1
   integer :: m1_i_nuebar = 2
@@ -28,6 +29,13 @@ module mod_m1_eas_param
   integer :: m1_i_mu = 4
   integer :: m1_i_mubar = 5
   integer :: m1_i_photon = 6
+
+  logical :: m1_rates_Weakhub = .true.
+  logical :: m1_rates_analytical = .false.
+  logical :: beta_decay = .true.
+  logical :: plasmon_decay = .true.
+  logical :: bremstrahlung = .true.
+  logical :: pair_annihil = .true.
 
   double precision, allocatable :: m1_eas_ixD(:, :) !(m1_num_eas,^NS)  !(:,:,:) 
   ! not used:

@@ -12,6 +12,7 @@ module mod_m1_tau_optical
     use mod_m1_internal
     use mod_m1_eas_microphysical_gray
     use mod_m1_constants 
+    use mod_m1_eas_param
     {#IFDEF UNIT_TESTS
     use mod_m1_tests
     use amrvacdef
@@ -29,7 +30,7 @@ module mod_m1_tau_optical
     integer :: ix^D, ixO^L
     double precision :: dummy = 1.0d0
     double precision :: eas_eq(1:m1_num_eas)        !>eq. rates
-    double precision, dimension(1:3) :: fluid_Prim  !> fluid vars
+    double precision, dimension(1:fluid_vars) :: fluid_Prim  !> fluid vars
     double precision, dimension(1:m1_numvars_internal) :: wrad
     type(m1_metric_helper) :: metricM1
     ! internal for tau

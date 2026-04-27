@@ -227,11 +227,16 @@ use mod_cfc, only: cfc_solver_activate
 use mod_gw_br
 use mod_eos_tabulated_parameters
 use mod_eos_tabulated
+!use mod_eos_leptonic_parameters
+!use mod_eos_leptonic
 use mod_eos_idealgas
 use mod_eos_hybrid
 use mod_eos_polytrope
 use mod_eos
 use mod_variables
+use mod_m1_eas_param, only: m1_rates_Weakhub, m1_rates_analytical, beta_decay, &
+                             plasmon_decay, bremstrahlung, pair_annihil
+use mod_weakhub_parameters, only: Weakhub_grey_method
 include 'amrvacdef.f'
 
 logical :: fileopen
@@ -302,6 +307,14 @@ namelist /cfclist/    cfc_evolve, cfc_smallest_dt, cfc_dit_update, cfc_dt_update
                       gw_br_use_I3_ij, gw_br_use_wi, use_h00_coupling, &
                       gw_br_dt_update, use_index_contract, use_3rd_d_Iij, use_h00_cfc_betai, use_h00_cfc_alp, &
                       gw_br_couple_weakly
+! TODO muons
+!namelist /eoslist/    eos_type_input, atmo_type, table_type_input, eos_table_name, &
+!                      eos_gamma, eos_adiab, eos_gamma_th, massn_cgs, &
+!                      small_rho, small_rho_thr, small_rho_fac, &
+!                      small_temp, atmo_gamma, atmo_adiab, use_realistic_mp_table, &
+!                      baryon_table_type, baryon_table_name, leptonic_table_name, &
+!                      lep_use_muons, lep_add_ele_contribution, lep_fix_ymu_high_yp, &
+!                      lep_extend_table_high
 namelist /eoslist/    eos_type_input, atmo_type, table_type_input, eos_table_name, &
                       eos_gamma, eos_adiab, eos_gamma_th, massn_cgs, &
                       small_rho, small_rho_thr, small_rho_fac, &
@@ -312,8 +325,11 @@ namelist /outflowlist/  healpix_det_open, healpix_det_num, healpix_det_radii, he
 
 namelist /m1list/  fileWeakhub, m1_closure_type, m1_actual_speeds, m1_radice_speeds, m1_parabolic, &
                     m1_frad_A2_A, m1_frad_A2_A3, m1_erad_LLF, m1_frad_LLF, M1_FLUID_BACKREACT, &
-                    m1_use_neutrinos, m1_use_muons, m1_use_photons, m1_2_eas_updates, TESTqtC, m1_E_atmo, &
-                    m1_N_atmo, m1_tset, m1_tset_backreact, m1_rho_floor
+                    m1_use_neutrinos, m1_use_muons, m1_use_photons, m1_use_5_species, m1_2_eas_updates, &
+                    TESTqtC, m1_E_atmo, &
+                    m1_N_atmo, m1_tset, m1_tset_backreact, m1_rho_floor, Weakhub_grey_method, &
+                    m1_rates_Weakhub, m1_rates_analytical, beta_decay, plasmon_decay, &
+                    bremstrahlung, pair_annihil
 
 ! m1_i_nue, m1_i_nuebar, m1_i_nux, m1_i_mu, m1_i_mubar, m1_i_photon
 !----------------------------------------------------------------------------
@@ -572,6 +588,13 @@ M1_FLUID_BACKREACT = .false.
 m1_use_neutrinos = .true.
 m1_use_muons = .false.
 m1_use_photons = .false.
+m1_use_5_species = .false.
+m1_rates_Weakhub = .true.
+m1_rates_analytical = .false.
+beta_decay = .true.
+plasmon_decay = .true.
+bremstrahlung = .true.
+pair_annihil = .true.
 TESTqtC = 1.0d+10
 m1_2_eas_updates = .true.
 m1_E_atmo = 1.0d-15
@@ -585,6 +608,7 @@ m1_N_atmo = 1.0d-15
 m1_tset = 1.0d0 !0.4d0
 m1_tset_backreact = 2.0d0
 m1_rho_floor = 1.0d-12
+Weakhub_grey_method = 1
 
 ! problem setup defaults
 dxlone^D=zero;
@@ -877,6 +901,7 @@ if (mype == 0) then
 
     print*,'d_            :', d_           , 'reconstruct?', var_reconstruct(d_)
     print*,'dye_          :', dye_         , 'reconstruct?', var_reconstruct(dye_)
+    !print*,'dymu_         :', dymu_        , 'reconstruct?', var_reconstruct(dymu_)
     print*,'s1_           :', s1_          , 'reconstruct?', var_reconstruct(s1_)
     print*,'s2_           :', s2_          , 'reconstruct?', var_reconstruct(s2_)
     print*,'s3_           :', s3_          , 'reconstruct?', var_reconstruct(s3_)
@@ -885,6 +910,7 @@ if (mype == 0) then
     print*,'Dtr1_         :', Dtr1_        , 'reconstruct?', var_reconstruct(Dtr1_)
     print*,'pp_           :', pp_          , 'reconstruct?', var_reconstruct(pp_)
     print*,'ye_           :', ye_          , 'reconstruct?', var_reconstruct(ye_)
+   ! print*,'ymu_          :', ymu_         , 'reconstruct?', var_reconstruct(ymu_)
     print*,'rho_          :', rho_         , 'reconstruct?', var_reconstruct(rho_)
     print*,'u1_           :', u1_          , 'reconstruct?', var_reconstruct(u1_)
     print*,'u2_           :', u2_          , 'reconstruct?', var_reconstruct(u2_)
@@ -1156,9 +1182,21 @@ case("polytrope")
   call eos_polytrope_activate()
 case("hybrid")
   call eos_hybrid_activate()
+!case("leptonic")
+!  call eos_leptonic_activate()
 case default
   call mpistop('pls specify eos type or you missed the eos type input in para file')
 end select
+!{#IFNDEF TABEOS
+!  if (eos_uses_ye()) then
+!     call mpistop('using a table-based Ye EOS, please define TABEOS in definition file first')
+!  endif
+!}
+!{#IFDEF TABEOS
+!  if (.not. eos_uses_ye()) then
+!     call mpistop('You defined TABEOS in definition, if you do not use a table-based EOS, please undefine it')
+!  endif
+!}
 {#IFNDEF TABEOS
   if (eos_type == tabulated) then
      call mpistop('using tabulated eos, please define TABEOS in defintion file first')
@@ -1176,6 +1214,49 @@ read(unitpar, m1list)
 
 close(unitpar)
 
+{#IFDEF M1_RATES
+if (m1_use_5_species) then
+   m1_use_neutrinos = .true.
+   m1_use_muons = .true.
+endif
+
+if (m1_use_muons) m1_use_5_species = .true.
+
+if (m1_use_muons .and. .not. m1_use_neutrinos) then
+   call mpistop('5-species M1 needs m1_use_neutrinos = .true. when m1_use_muons = .true.')
+endif
+
+!if (m1_use_muons .and. .not. eos_has_ymu()) then
+!   call mpistop('m1_use_muons = .true. requires eos_type_input = leptonic')
+!endif
+
+!if (m1_use_muons .and. .not. lep_use_muons) then
+!   call mpistop('m1_use_muons = .true. requires lep_use_muons = .true. in eoslist')
+!endif
+
+if (m1_use_neutrinos) then
+   if (m1_rates_Weakhub .eqv. m1_rates_analytical) then
+      call mpistop('Choose exactly one neutrino-rate mode: m1_rates_Weakhub xor m1_rates_analytical')
+   endif
+endif
+
+!if (m1_use_neutrinos .and. .not. eos_uses_ye()) then
+!   call mpistop('Microphysical neutrino M1 needs a Ye-dependent EOS (tabulated or leptonic)')
+!endif
+
+if (m1_rates_analytical .and. m1_use_muons) then
+   call mpistop('Analytical M1 rates are only supported for 3 neutrino species; use Weakhub for 5 species')
+endif
+
+if (m1_rates_analytical .and. m1_use_5_species) then
+   call mpistop('m1_use_5_species = .true. requires m1_rates_Weakhub = .true.')
+endif
+
+if (m1_rates_Weakhub .and. Weakhub_grey_method .ne. 1) then
+   call mpistop('Active BHAC M1 Weakhub path currently supports only Weakhub_grey_method = 1')
+endif
+}
+
 if (mype==0) then
    print*,'Reading from inifile: ', trim(inifile)
    print*,'snapshotini         : ', snapshotini
@@ -1185,6 +1266,10 @@ if (mype==0) then
    print*,'Filenameini         : ', trim(filenameini)
    print*,'Filenameout         : ', trim(filenameout)
    print*,'Converting?         : ', convert
+   print*,'m1_use_5_species    : ', m1_use_5_species
+   print*,'m1_rates_Weakhub    : ', m1_rates_Weakhub
+   print*,'m1_rates_analytical : ', m1_rates_analytical
+   print*,'Weakhub_grey_method : ', Weakhub_grey_method
    print*,'                                                                '
 endif
 
